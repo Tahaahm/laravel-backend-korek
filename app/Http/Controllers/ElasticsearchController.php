@@ -14,85 +14,67 @@ class ElasticsearchController extends Controller
 {
     public function createIndex()
     {
-        try {
-            $client = ClientBuilder::create()
-                ->setHosts([config('elasticsearch.hosts')])
-                ->setBasicAuthentication('taha', 'taha123')
-                ->build();
+        $client = ClientBuilder::create()
+        ->setHosts([config('elasticsearch.hosts')])
+        ->setBasicAuthentication('taha', 'taha123')
+        ->build();
 
-            $indexName = 'book';
+    $indexName = 'book';
 
-            $params = [
-                'index' => $indexName,
-                'body' => [
-                    'settings' => [
-                        'number_of_shards' => 1,
-                        'number_of_replicas' => 1,
-                        'analysis' => [
-                            'filter' => [
-                                'arabic_folding' => [
-                                    'type' => 'icu_folding',
-                                    'unicodeSetFilter' => 'Arabic-Letters',
-                                ],
-                                'custom_icu_folding' => [
-                                    'type' => 'icu_folding',
-                                    'unicodeSetFilter' => '[^ءآأؤإئابةتثجحخدذرزسشصضطظعغفقكلمنهوىيـ] remove_diacritics',
-                                ],
-                            ],
-                            'analyzer' => [
-                                'arabic_analyzer' => [
-                                    'tokenizer' => 'standard',
-                                    'filter' => ['lowercase', 'arabic_normalization', 'arabic_folding', 'custom_icu_folding'],
-                                ],
-                            ],
+    $params = [
+        'index' => $indexName,
+        'body' => [
+            'settings' => [
+                'analysis' => [
+                    'filter' => [
+                        'arabic_stop' => [
+                            'type' => 'stop',
+                            'stopwords' => '_arabic_',
+                        ],
+                        'arabic_keywords' => [
+                            'type' => 'keyword_marker',
+                            'keywords' => ['مثال'], // Add any specific keywords
+                        ],
+                        'arabic_stemmer' => [
+                            'type' => 'stemmer',
+                            'language' => 'arabic',
+                        ],
+                        'custom_word_delimiter' => [
+                            'type' => 'word_delimiter',
+                            'preserve_original' => true
                         ],
                     ],
-
-                ],
-            ];
-
-            $client->indices()->create($params);
-
-            return response()->json(['message' => 'Index created successfully']);
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
-
-    public function createPdfAttachmentPipeline()
-{
-    try {
-        $client = ClientBuilder::create()
-            ->setHosts([config('elasticsearch.hosts')])
-            ->setBasicAuthentication('taha', 'taha123')
-            ->build();
-
-        $pipelineId = 'pdf_attachment';
-
-        $params = [
-            'id' => $pipelineId,
-            'body' => [
-                'description' => 'Extract text from PDF files',
-                'processors' => [
-                    [
-                        'attachment' => [
-                            'field' => 'pdf',
-                            'indexed_chars' => -1,
-                            'ignore_missing' => true,
-                            'properties' => ['content'],
+                    'analyzer' => [
+                        'arabic' => [
+                            'tokenizer' => 'standard',
+                            'filter' => [
+                                'lowercase',
+                                'decimal_digit',
+                                'arabic_stop',
+                                'arabic_normalization',
+                                'arabic_keywords',
+                                'arabic_stemmer',
+                                'custom_word_delimiter'
+                            ],
                         ],
                     ],
                 ],
             ],
-        ];
+            'mappings' => [
+                'properties' => [
+                    'pdf_content' => [
+                        'type' => 'text',
+                        'analyzer' => 'arabic',
+                    ],
+                ],
+            ],
+        ],
+    ];
 
-        $client->ingest()->putPipeline($params);
+    $client->indices()->create($params);
 
-        return response()->json(['message' => 'Ingest pipeline created successfully']);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
+        return response()->json(['message' => 'Index created successfully']);
     }
-}
 
     public function uploadAndIndex(Request $request)
     {
@@ -168,14 +150,17 @@ class ElasticsearchController extends Controller
             'body' => [
                 'query' => [
                     'match_phrase' => [
-                        'pdf_content' => $query,
+                        'pdf_content' => [
+                            'query' => $query,
+                            'slop' => 1 // Adjust this value as needed
+                        ],
                     ],
                 ],
                 'highlight' => [
                     'order' => 'score',
                     'fields' => [
                         'pdf_content' => [
-                            'fragment_size' => 110, // Show 40 words of context
+                            'fragment_size' => 110,
                             'number_of_fragments' => 20,
                             'highlight_query' => [
                                 'match_phrase' => [
@@ -218,6 +203,7 @@ class ElasticsearchController extends Controller
             'results' => $results,
         ]);
     }
+
 
 
 public function getAllTitlesAndContent(Request $request)
@@ -263,24 +249,36 @@ public function getAllTitlesAndContent(Request $request)
 }
 public function deleteDocumentsByTitle(Request $request)
 {
-    $elasticsearch = ClientBuilder::create()->build();
+    $this->validate($request, [
+        'title' => 'required|string|max:255',
+    ]);
 
-    $indexName = 'book'; // Replace with the actual index name
-    $title = $request->input('title');
+    try {
+        $client = ClientBuilder::create()
+            ->setHosts([config('elasticsearch.hosts')])
+            ->setBasicAuthentication('taha', 'taha123')
+            ->build();
 
-    $params = [
-        'index' => $indexName,
-        'body' => [
-            'query' => [
-                'match' => ['title' => $title]
+        $indexName = 'book';
+        $title = $request->input('title');
+
+        $params = [
+            'index' => $indexName,
+            'body' => [
+                'query' => [
+                    'match' => ['title' => $title]
+                ]
             ]
-        ]
-    ];
+        ];
 
-    $response = $elasticsearch->deleteByQuery($params);
+        $response = $client->deleteByQuery($params);
 
-    return response()->json(['message' => 'Documents deleted successfully']);
+        return response()->json(['message' => 'Documents deleted successfully']);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
 }
+
 
 
 }

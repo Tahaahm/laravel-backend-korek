@@ -31,6 +31,6 @@ Route::post('/people', [PersonController::class ,'store']);
 Route::get('/people', [PersonController::class ,'index']);
 
 
-Route::get('fetch',[ElasticsearchController::class,'getAllTitlesAndContent']);
+Route::get('/fetch',[ElasticsearchController::class,'getAllTitlesAndContent']);
 Route::get('/createindex',[ElasticsearchController::class,'createPdfAttachmentPipeline']);
 Route::delete('/delete', [ElasticsearchController::class,'deleteDocumentsByTitle']);

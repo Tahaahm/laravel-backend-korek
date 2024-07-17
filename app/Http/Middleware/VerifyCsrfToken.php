@@ -15,5 +15,6 @@ class VerifyCsrfToken extends Middleware
         // Add the routes you want to exclude here
         '/create',
         '/index',
+        'delete',  // Add your delete route here
     ];
 }
